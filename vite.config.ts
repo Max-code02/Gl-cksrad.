@@ -17,6 +17,11 @@ export default defineConfig(() => {
           main: path.resolve(__dirname, 'index.html'),
           handy: path.resolve(__dirname, 'handy.html'),
         },
+        output: {
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name].[ext]',
+        },
       },
     },
     server: {

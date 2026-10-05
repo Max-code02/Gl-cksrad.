@@ -184,6 +184,25 @@ const distDir = path.join(__dirname, 'dist');
 const distIndex = path.join(distDir, 'index.html');
 const distHandy = path.join(distDir, 'handy.html');
 
+// Fallback für alte Clients oder direkte Script-Anfragen: Niemals video/mp2t ausliefern!
+app.get('/src/main-wheel.ts', (_req: Request, res: Response) => {
+  const mainBundle = path.join(distDir, 'assets', 'main.js');
+  if (fs.existsSync(mainBundle)) {
+    res.type('application/javascript').sendFile(mainBundle);
+  } else {
+    res.type('application/javascript').sendFile(path.join(__dirname, 'src', 'main-wheel.ts'));
+  }
+});
+
+app.get('/src/remote-control.ts', (_req: Request, res: Response) => {
+  const handyBundle = path.join(distDir, 'assets', 'handy.js');
+  if (fs.existsSync(handyBundle)) {
+    res.type('application/javascript').sendFile(handyBundle);
+  } else {
+    res.type('application/javascript').sendFile(path.join(__dirname, 'src', 'remote-control.ts'));
+  }
+});
+
 app.use(express.static(distDir));
 app.use('/assets', express.static(path.join(distDir, 'assets')));
 
