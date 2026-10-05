@@ -1,0 +1,6 @@
+{
+  "name": "Glücksrad",
+  "description": "Interaktives Glücksrad mit HD-Canvas, realistischer Physik, Sound-Effekten und flüssigen Animationen.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

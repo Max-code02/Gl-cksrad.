@@ -1,0 +1,10 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Erlaubt das Lesen und Schreiben für alle Glücksräder
+    match /wheels/{wheelId} {
+      allow read, write: if true;
+    }
+  }
+}
