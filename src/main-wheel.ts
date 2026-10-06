@@ -1,6 +1,7 @@
 import {
   type WheelData,
   DEFAULT_PRESET_WHEEL,
+  getLocalWheels,
   fetchAllWheels,
   saveWheelToFirebase,
   deleteWheelFromFirebase,
@@ -242,18 +243,26 @@ function init() {
   buildDevConsole();
 
   // Load from local storage immediately so UI is 100% responsive right away
+  const cached = getLocalWheels();
+  if (cached && cached.length > 0) {
+    allWheels = cached;
+  }
+
+  // Determine starting wheel (URL query or last active wheel or default)
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetId = urlParams.get('wheel') || urlParams.get('room') || localStorage.getItem('last_active_wheel_id') || DEFAULT_PRESET_WHEEL.id;
+  const initialWheel = allWheels.find((w) => w.id.toLowerCase() === targetId.toLowerCase()) || allWheels[0] || DEFAULT_PRESET_WHEEL;
+
+  // SOFORT DIREKT IM GLÜCKSRAD STARTEN (statt erst in der Übersicht)
+  openWheel(initialWheel);
+  renderHubView();
+
+  // Background fetch from Firebase
   fetchAllWheels().then((wheels) => {
     allWheels = wheels;
     renderHubView();
-  });
 
-  // Realtime subscription
-  subscribeToWheels((wheels) => {
-    allWheels = wheels;
-    renderHubView();
-
-    // If currently playing, sync changes
-    const updated = wheels.find((w) => w.id === currentWheel.id);
+    const updated = wheels.find((w) => w.id.toLowerCase() === currentWheel.id.toLowerCase());
     if (updated) {
       currentWheel = { ...updated };
       config.spinDuration = currentWheel.spinDuration || 6000;
@@ -263,13 +272,21 @@ function init() {
     }
   });
 
-  // URL Query check
-  const urlParams = new URLSearchParams(window.location.search);
-  const targetId = urlParams.get('wheel') || urlParams.get('room');
-  if (targetId) {
-    const found = allWheels.find((w) => w.id.toLowerCase() === targetId.toLowerCase());
-    if (found) openWheel(found);
-  }
+  // Realtime subscription
+  subscribeToWheels((wheels) => {
+    allWheels = wheels;
+    renderHubView();
+
+    // If currently playing, sync changes
+    const updated = wheels.find((w) => w.id.toLowerCase() === currentWheel.id.toLowerCase());
+    if (updated) {
+      currentWheel = { ...updated };
+      config.spinDuration = currentWheel.spinDuration || 6000;
+      updateDurationUI(config.spinDuration);
+      renderOptionsList();
+      drawWheel();
+    }
+  });
 
   // Socket stealth listeners
   if (socket) {
@@ -371,6 +388,10 @@ function renderHubView() {
 
 function openWheel(wheel: WheelData) {
   currentWheel = { ...wheel };
+  try {
+    localStorage.setItem('last_active_wheel_id', wheel.id);
+  } catch (e) {}
+
   config.spinDuration = wheel.spinDuration || 6000;
   updateDurationUI(config.spinDuration);
 
@@ -384,7 +405,7 @@ function openWheel(wheel: WheelData) {
 
   const url = new URL(window.location.href);
   url.searchParams.set('wheel', wheel.id);
-  window.history.pushState({}, '', url.toString());
+  window.history.replaceState({}, '', url.toString());
 
   if (socket) {
     socket.emit('join_room', { roomName: wheel.id });
@@ -392,7 +413,54 @@ function openWheel(wheel: WheelData) {
   }
 
   renderOptionsList();
-  resizeCanvas();
+  requestAnimationFrame(() => {
+    resizeCanvas();
+  });
+}
+
+async function saveCurrentWheelState() {
+  const saveBtn = $('btnSaveCurrentWheel');
+  const saveSideBtn = $('btnSaveSide');
+  const indicator = $('saveStatusIndicator');
+
+  // Save to Firebase and LocalStorage
+  await saveWheelToFirebase(currentWheel);
+
+  // Sync to Socket room
+  if (socket && socket.connected) {
+    socket.emit('sync_options', { options: currentWheel.options });
+  }
+
+  // Update in local array
+  const idx = allWheels.findIndex((w) => w.id === currentWheel.id);
+  if (idx >= 0) {
+    allWheels[idx] = { ...currentWheel };
+  } else {
+    allWheels.unshift({ ...currentWheel });
+  }
+  renderHubView();
+
+  // Visual success feedback
+  if (saveBtn) {
+    saveBtn.innerHTML = '✅ Gespeichert!';
+    saveBtn.classList.add('saved-pulse');
+    setTimeout(() => {
+      saveBtn.innerHTML = '💾 Speichern';
+      saveBtn.classList.remove('saved-pulse');
+    }, 2000);
+  }
+
+  if (saveSideBtn) {
+    saveSideBtn.textContent = '✅ Gespeichert!';
+    setTimeout(() => {
+      saveSideBtn.textContent = '💾 Sichern';
+    }, 2000);
+  }
+
+  if (indicator) {
+    indicator.textContent = '✓ Gespeichert (' + new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ')';
+    indicator.style.color = '#10b981';
+  }
 }
 
 function backToHub() {
@@ -404,7 +472,7 @@ function backToHub() {
 
   const url = new URL(window.location.href);
   url.searchParams.delete('wheel');
-  window.history.pushState({}, '', url.toString());
+  window.history.replaceState({}, '', url.toString());
 
   renderHubView();
 }
@@ -557,6 +625,12 @@ function addOption() {
     drawWheel();
     const list = $('optionsList');
     if (list) list.scrollTo({ top: list.scrollHeight, behavior: 'smooth' });
+
+    const indicator = $('saveStatusIndicator');
+    if (indicator) {
+      indicator.textContent = '✓ Gespeichert (' + currentWheel.options.length + ' Optionen)';
+      indicator.style.color = '#10b981';
+    }
   }
   input.focus();
 }
@@ -1049,11 +1123,20 @@ function setupEventListeners() {
     });
   }
 
-  // Back to Hub
+  // Back to Hub & Navigation
   $('btnBackToHub')?.addEventListener('click', backToHub);
+  $('btnReturnToWheel')?.addEventListener('click', () => openWheel(currentWheel));
 
-  // New Wheel Modal
+  // Save Current Wheel
+  $('btnSaveCurrentWheel')?.addEventListener('click', saveCurrentWheelState);
+  $('btnSaveSide')?.addEventListener('click', saveCurrentWheelState);
+
+  // Edit / Change Current Wheel (opens modal prefilled with current settings)
+  $('btnEditCurrentWheel')?.addEventListener('click', () => openWheelModal(currentWheel));
+
+  // New Wheel Modals
   $('btnCreateNewWheel')?.addEventListener('click', () => openWheelModal());
+  $('btnCreateNewWheelFromTop')?.addEventListener('click', () => openWheelModal());
   $('btnCloseWheelModal')?.addEventListener('click', closeWheelModal);
   $('wheelModal')?.addEventListener('click', (e) => {
     if (e.target === $('wheelModal')) closeWheelModal();

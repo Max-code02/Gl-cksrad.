@@ -98,7 +98,7 @@
 
         /* HUB VIEW: GLÜCKSRÄDER & RAUMAUSWAHL */
         #hubView {
-            display: flex;
+            display: none;
             flex-direction: column;
             gap: 1.5rem;
             width: 100%;
@@ -274,7 +274,7 @@
 
         /* WHEEL PLAY VIEW */
         #wheelView {
-            display: none;
+            display: flex;
             flex-direction: column;
             gap: 1.5rem;
             width: 100%;
@@ -290,6 +290,60 @@
             padding: 1rem 1.5rem;
             flex-wrap: wrap;
             gap: 0.8rem;
+        }
+
+        .wheel-title-group {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-action-pill {
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 0.95rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-action-pill:hover {
+            border-color: #38bdf8;
+            color: #38bdf8;
+            transform: translateY(-1px);
+        }
+
+        .btn-save-wheel {
+            background: var(--accent-gradient);
+            color: #ffffff;
+            border: none;
+            padding: 0.55rem 1.25rem;
+            border-radius: 12px;
+            font-size: 0.88rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 4px 15px -3px rgba(236, 72, 153, 0.4);
+            transition: all 0.15s ease;
+        }
+
+        .btn-save-wheel:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px -3px rgba(236, 72, 153, 0.6);
+        }
+
+        .btn-save-wheel.saved-pulse {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+            box-shadow: 0 4px 15px -3px rgba(16, 185, 129, 0.6) !important;
         }
 
         .btn-back-hub {
@@ -744,9 +798,14 @@
                 <div class="hub-title">
                     <span>🎡 Deine Glücksräder</span>
                 </div>
-                <button id="btnCreateNewWheel" class="btn-create-wheel" onclick="if(window.openNewWheelModal)window.openNewWheelModal()">
-                    ➕ Neues Glücksrad erstellen
-                </button>
+                <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                    <button id="btnReturnToWheel" class="btn-back-hub" title="Zurück zum aktuellen Rad">
+                        ← Zum Glücksrad
+                    </button>
+                    <button id="btnCreateNewWheel" class="btn-create-wheel" onclick="if(window.openNewWheelModal)window.openNewWheelModal()">
+                        ➕ Neues Glücksrad erstellen
+                    </button>
+                </div>
             </div>
 
             <!-- Liste / Raster aller Räder -->
@@ -758,24 +817,36 @@
         <!-- 2. WHEEL PLAY VIEW: DAS AKTIVE GLÜCKSRAD -->
         <section id="wheelView">
             <div class="wheel-top-bar">
-                <button id="btnBackToHub" class="btn-back-hub" title="Zurück zur Auswahl">
-                    ← Alle Räder
-                </button>
-                <div id="activeWheelTitle" class="active-wheel-header">
-                    Standard Glücksrad
+                <div class="wheel-title-group">
+                    <h2 id="activeWheelTitle" class="active-wheel-header">Standard Glücksrad</h2>
+                    <button id="btnEditCurrentWheel" class="btn-action-pill" title="Name, ID & Einstellungen ändern">
+                        ✏️ Ändern
+                    </button>
+                    <button id="btnSaveCurrentWheel" class="btn-save-wheel" title="Aktuellen Stand in Firebase & Speicher sichern">
+                        💾 Speichern
+                    </button>
                 </div>
 
-                <!-- DREHZEIT STEUERUNG (WIE LANG SOLL ES DREHEN - GEFIXT) -->
-                <div class="duration-control-bar">
-                    <span class="duration-label">⏱️ Drehzeit:</span>
-                    <input type="number" id="durationInput" class="duration-input" min="1" max="30" step="1" value="6" title="Drehzeit in Sekunden">
-                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Sek.</span>
-                    <div class="duration-presets">
-                        <button class="btn-duration-preset" data-sec="3">3s</button>
-                        <button class="btn-duration-preset active" data-sec="6">6s</button>
-                        <button class="btn-duration-preset" data-sec="10">10s</button>
-                        <button class="btn-duration-preset" data-sec="15">15s</button>
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <!-- DREHZEIT STEUERUNG (WIE LANG SOLL ES DREHEN - GEFIXT) -->
+                    <div class="duration-control-bar">
+                        <span class="duration-label">⏱️ Drehzeit:</span>
+                        <input type="number" id="durationInput" class="duration-input" min="1" max="30" step="1" value="6" title="Drehzeit in Sekunden">
+                        <span style="font-size: 0.8rem; color: var(--text-secondary);">Sek.</span>
+                        <div class="duration-presets">
+                            <button class="btn-duration-preset" data-sec="3">3s</button>
+                            <button class="btn-duration-preset active" data-sec="6">6s</button>
+                            <button class="btn-duration-preset" data-sec="10">10s</button>
+                            <button class="btn-duration-preset" data-sec="15">15s</button>
+                        </div>
                     </div>
+
+                    <button id="btnCreateNewWheelFromTop" class="btn-action-pill" title="Ein neues Rad erstellen">
+                        ➕ Neues Rad
+                    </button>
+                    <button id="btnBackToHub" class="btn-back-hub" title="Zur Übersicht aller Glücksräder">
+                        📂 Alle Räder
+                    </button>
                 </div>
             </div>
 
@@ -783,8 +854,14 @@
                 <!-- Linke Seite: Steuerung & Optionen -->
                 <section class="card">
                     <div class="controls-header">
-                        <h2>Optionen (<span id="itemCount">16</span>)</h2>
-                        <button id="resetBtn" class="btn-reset" title="Standard-Optionen laden">Zurücksetzen</button>
+                        <div>
+                            <h2>Optionen (<span id="itemCount">16</span>)</h2>
+                            <span id="saveStatusIndicator" style="font-size: 0.75rem; color: #10b981; font-weight: 600; display: block; margin-top: 2px;">✓ Gespeichert</span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="btnSaveSide" class="btn-action-pill" style="padding: 0.35rem 0.75rem; font-size: 0.8rem;" title="Optionen sichern">💾 Sichern</button>
+                            <button id="resetBtn" class="btn-reset" title="Standard-Optionen laden">Zurücksetzen</button>
+                        </div>
                     </div>
 
                     <form id="addForm" class="input-group" onSubmit="return false;">
