@@ -319,6 +319,7 @@ function init() {
     });
 
     socket.on('trigger_spin', (data: any) => {
+      closeModal();
       if (data && data.targetIndex !== undefined && data.targetIndex !== null && data.targetIndex >= 0) {
         updateFocusState(data.targetIndex);
       } else {
@@ -413,8 +414,8 @@ function openWheel(wheel: WheelData) {
   window.history.replaceState({}, '', url.toString());
 
   if (socket) {
-    socket.emit('join_room', { roomName: wheel.id });
-    socket.emit('sync_options', { options: wheel.options });
+    socket.emit('join_room', { roomName: wheel.id, options: wheel.options });
+    socket.emit('sync_options', { room: wheel.id, options: wheel.options });
   }
 
   renderOptionsList();
@@ -433,7 +434,7 @@ async function saveCurrentWheelState() {
 
   // Sync to Socket room
   if (socket && socket.connected) {
-    socket.emit('sync_options', { options: currentWheel.options });
+    socket.emit('sync_options', { room: currentWheel.id, options: currentWheel.options });
   }
 
   // Update in local array
@@ -891,6 +892,7 @@ function drawUltraFittedText(ctx: CanvasRenderingContext2D, text: string, radius
 
 // --- SPIN ANIMATION ---
 function startSpin() {
+  closeModal();
   if (isSpinning || currentWheel.options.length === 0) return;
 
   audio.init();
@@ -900,7 +902,7 @@ function startSpin() {
   activeIndex = -1;
 
   if (socket) {
-    socket.emit('notify_pc_spun');
+    socket.emit('notify_pc_spun', { room: currentWheel.id });
   }
 
   const startRotation = currentRotation;

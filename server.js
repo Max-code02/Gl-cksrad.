@@ -61,12 +61,16 @@ io.on("connection", (socket) => {
     }
     currentRoom = roomName;
     socket.join(currentRoom);
+    if (data && Array.isArray(data.options) && data.options.length > 0) {
+      rooms[currentRoom].options = data.options.slice(0, 100);
+    }
     const roomData = rooms[currentRoom];
     const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 1;
     console.log(`[\u{1F3EB}] [${time()}] Ger\xE4t ${socket.id} ist Raum '${currentRoom}' beigetreten. (${roomClientsCount} Ger\xE4te aktiv)`);
     socket.emit("init_state", {
       room: currentRoom,
       options: roomData.options,
+      forcedMainTarget: roomData.forcedMainTarget,
       clientsCount: roomClientsCount
     });
     io.to(currentRoom).emit("client_count_changed", { count: roomClientsCount });
@@ -77,43 +81,52 @@ io.on("connection", (socket) => {
   });
   socket.on("request_sync", (data = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (targetRoom && rooms[targetRoom]) {
+    if (targetRoom) {
+      const roomName = getOrCreateRoom(targetRoom);
+      const roomData = rooms[roomName];
       socket.emit("init_state", {
-        room: targetRoom,
-        options: rooms[targetRoom].options,
-        clientsCount: io.sockets.adapter.rooms.get(targetRoom)?.size || 1
+        room: roomName,
+        options: roomData.options,
+        forcedMainTarget: roomData.forcedMainTarget,
+        clientsCount: io.sockets.adapter.rooms.get(roomName)?.size || 1
       });
     }
   });
   socket.on("sync_options", (data = {}) => {
-    if (!currentRoom || !rooms[currentRoom]) return;
-    if (data && Array.isArray(data.options)) {
-      rooms[currentRoom].options = data.options.slice(0, 100).map((opt) => String(opt).trim().substring(0, 50));
-      socket.to(currentRoom).emit("update_options", { options: rooms[currentRoom].options });
+    const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
+    if (data && Array.isArray(data.options) && data.options.length > 0) {
+      rooms[roomName].options = data.options.slice(0, 100).map((opt) => String(opt).trim().substring(0, 50));
+      io.to(roomName).emit("update_options", { options: rooms[roomName].options });
     }
   });
   socket.on("set_forced_main_target", (data) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
     if (data && typeof data.targetIndex === "number") {
-      rooms[targetRoom].forcedMainTarget = data.targetIndex;
-      console.log(`[\u{1F3AF}] [${time()}] [Raum: ${targetRoom}] PC-Falle aktiviert! N\xE4chster Klick landet auf Index: ${rooms[targetRoom].forcedMainTarget}`);
-      io.to(targetRoom).emit("arm_pc_trap", { targetIndex: rooms[targetRoom].forcedMainTarget });
+      rooms[roomName].forcedMainTarget = data.targetIndex;
+      console.log(`[\u{1F3AF}] [${time()}] [Raum: ${roomName}] PC-Falle aktiviert! N\xE4chster Klick landet auf Index: ${rooms[roomName].forcedMainTarget}`);
+      io.to(roomName).emit("arm_pc_trap", { targetIndex: rooms[roomName].forcedMainTarget });
     }
   });
-  socket.on("notify_pc_spun", () => {
-    if (!currentRoom || !rooms[currentRoom]) return;
-    rooms[currentRoom].forcedMainTarget = -1;
-    console.log(`[\u{1F504}] [${time()}] [Raum: ${currentRoom}] Gl\xFCcksrad wurde am PC gedreht. Falle resettet.`);
-    io.to(currentRoom).emit("wheel_spun_on_pc");
+  socket.on("notify_pc_spun", (data = {}) => {
+    const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
+    rooms[roomName].forcedMainTarget = -1;
+    console.log(`[\u{1F504}] [${time()}] [Raum: ${roomName}] Gl\xFCcksrad wurde am PC gedreht. Falle resettet.`);
+    io.to(roomName).emit("wheel_spun_on_pc");
   });
   socket.on("remote_spin", (data = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
-    const roomData = rooms[targetRoom];
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
+    const roomData = rooms[roomName];
     const now = Date.now();
-    if (now - roomData.lastSpinTime < SPIN_COOLDOWN_MS) {
-      socket.emit("error_message", { message: "Bitte warte einen Moment vor dem n\xE4chsten Dreh!" });
+    if (now - roomData.lastSpinTime < 600) {
+      socket.emit("error_message", { message: "\u23F3 Bitte einen kurzen Moment warten!" });
       return;
     }
     let targetIndex = void 0;
@@ -121,17 +134,18 @@ io.on("connection", (socket) => {
       targetIndex = data.targetIndex;
     }
     roomData.lastSpinTime = now;
-    console.log(`[\u{1F680}] [${time()}] [Raum: ${targetRoom}] Dreh-Signal von ${socket.id} | Ziel: ${targetIndex ?? "Zufall"}`);
-    io.to(targetRoom).emit("trigger_spin", {
+    console.log(`[\u{1F680}] [${time()}] [Raum: ${roomName}] Dreh-Signal von ${socket.id} | Ziel: ${targetIndex ?? "Zufall"}`);
+    io.to(roomName).emit("trigger_spin", {
       targetIndex,
       triggeredBy: socket.id
     });
   });
   socket.on("trigger_sfx", (data = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
-    console.log(`[\u{1F50A}] [${time()}] [Raum: ${targetRoom}] SFX Trigger:`, data?.effect);
-    io.to(targetRoom).emit("trigger_sfx", data);
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
+    console.log(`[\u{1F50A}] [${time()}] [Raum: ${roomName}] SFX Trigger:`, data?.effect);
+    io.to(roomName).emit("trigger_sfx", data);
   });
   socket.on("disconnect", (reason) => {
     console.log(`[-] [${time()}] Ger\xE4t getrennt: ${socket.id} (${reason})`);

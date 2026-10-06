@@ -101,41 +101,61 @@ async function init() {
     });
 
     socket.on('init_state', (data: any) => {
-      if (data && Array.isArray(data.options)) {
+      if (data && Array.isArray(data.options) && data.options.length > 0) {
         currentWheel.options = data.options;
         syncOptions(data.options);
+      }
+      if (data && typeof data.forcedMainTarget === 'number') {
+        if (data.forcedMainTarget >= 0 && data.forcedMainTarget < currentWheel.options.length) {
+          armMainTrap(data.forcedMainTarget, currentWheel.options[data.forcedMainTarget], false);
+        } else {
+          clearMainTrap(false);
+        }
       }
     });
 
     socket.on('update_options', (data: any) => {
-      if (data && Array.isArray(data.options)) {
+      if (data && Array.isArray(data.options) && data.options.length > 0) {
         currentWheel.options = data.options;
         syncOptions(data.options);
       }
     });
 
+    socket.on('trigger_spin', () => {
+      vibrate(60);
+      showToast('🌀 Rad dreht sich am PC!');
+    });
+
+    socket.on('error_message', (data: any) => {
+      if (data?.message) {
+        showToast(data.message);
+        vibrate([80, 40, 80]);
+      }
+    });
+
+    socket.on('master_room_list', (activeRooms: string[]) => {
+      if (Array.isArray(activeRooms) && activeRooms.length > 0) {
+        showToast(`👑 Master-PIN: ${activeRooms.length} Räume online`);
+        const first = activeRooms[0];
+        const found = allWheels.find((w) => w.id === first);
+        if (found) selectRoom(found);
+        else selectRoom({ id: first, title: `Raum: ${first}`, options: DEFAULT_PRESET_WHEEL.options, spinDuration: 6000 });
+      } else {
+        showToast('👑 Master-PIN: Keine aktiven Räume');
+      }
+    });
+
     socket.on('wheel_spun_on_pc', () => {
-      clearMainTrap();
+      clearMainTrap(false);
     });
 
     socket.on('arm_pc_trap', (data: any) => {
       if (data && typeof data.targetIndex === 'number') {
-        const trapDisplay = $('trapDisplay');
-        const trapCard = $('trapCard');
-        const clearTrapBtn = $('clearTrapBtn');
-
         if (data.targetIndex >= 0 && data.targetIndex < currentWheel.options.length) {
-          forcedMainTarget = data.targetIndex;
-          if (trapDisplay) {
-            trapDisplay.textContent = `#${data.targetIndex + 1} "${currentWheel.options[data.targetIndex]}"`;
-            trapDisplay.style.color = '#38bdf8';
-          }
-          if (trapCard) trapCard.classList.add('active');
-          if (clearTrapBtn) clearTrapBtn.style.display = 'block';
+          armMainTrap(data.targetIndex, currentWheel.options[data.targetIndex], false);
         } else {
-          clearMainTrap();
+          clearMainTrap(false);
         }
-        renderOptionsUI();
       }
     });
   }
@@ -299,7 +319,7 @@ function triggerDirectSpin(targetIndex: number, label: string) {
   showToast(`🚀 Drehe direkt auf: "${label}"`);
 }
 
-function armMainTrap(index: number, label: string) {
+function armMainTrap(index: number, label: string, broadcast = true) {
   forcedMainTarget = index;
   const trapDisplay = $('trapDisplay');
   const trapCard = $('trapCard');
@@ -312,16 +332,16 @@ function armMainTrap(index: number, label: string) {
   if (trapCard) trapCard.classList.add('active');
   if (clearTrapBtn) clearTrapBtn.style.display = 'block';
 
-  if (socket) {
+  if (broadcast && socket) {
     socket.emit('set_forced_main_target', { room: currentRoom, targetIndex: index });
   }
 
   renderOptionsUI();
   vibrate([50, 50, 50]);
-  showToast(`🎯 PC-Klick präpariert auf: "${label}"`);
+  if (broadcast) showToast(`🎯 PC-Klick präpariert auf: "${label}"`);
 }
 
-function clearMainTrap() {
+function clearMainTrap(broadcast = true) {
   forcedMainTarget = null;
   const trapDisplay = $('trapDisplay');
   const trapCard = $('trapCard');
@@ -334,7 +354,7 @@ function clearMainTrap() {
   if (trapCard) trapCard.classList.remove('active');
   if (clearTrapBtn) clearTrapBtn.style.display = 'none';
 
-  if (socket) {
+  if (broadcast && socket) {
     socket.emit('set_forced_main_target', { room: currentRoom, targetIndex: -1 });
   }
   renderOptionsUI();
@@ -511,22 +531,39 @@ function setupEventListeners() {
   // Back to rooms button
   $('btnBackToRooms')?.addEventListener('click', backToRoomSelection);
 
-  // Manual room input
-  $('btnJoinManualRoom')?.addEventListener('click', () => {
+  // Manual room / PIN input
+  const handleJoinManual = () => {
     const input = $('manualRoomInput') as HTMLInputElement;
-    const val = input?.value.trim().toLowerCase();
-    if (val) {
-      const found = allWheels.find((w) => w.id === val);
-      if (found) {
-        selectRoom(found);
-      } else {
-        selectRoom({
-          id: val,
-          title: val,
-          options: DEFAULT_PRESET_WHEEL.options,
-          spinDuration: 6000,
-        });
-      }
+    const val = input?.value.trim();
+    if (!val) return;
+    const cleanVal = val.toLowerCase();
+
+    // Check Master PIN
+    if (val === '9999' || cleanVal === '9999') {
+      if (socket) socket.emit('join_room', { pin: val });
+      showToast('👑 Prüfe Master-PIN...');
+      input.value = '';
+      return;
+    }
+
+    const found = allWheels.find((w) => w.id.toLowerCase() === cleanVal);
+    if (found) {
+      selectRoom(found);
+    } else {
+      selectRoom({
+        id: cleanVal,
+        title: val,
+        options: DEFAULT_PRESET_WHEEL.options,
+        spinDuration: 6000,
+      });
+    }
+  };
+
+  $('btnJoinManualRoom')?.addEventListener('click', handleJoinManual);
+  $('manualRoomInput')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleJoinManual();
     }
   });
 
@@ -551,7 +588,7 @@ function setupEventListeners() {
     await saveWheelToFirebase(newWheel);
     allWheels = await fetchAllWheels();
     renderRemoteRoomsList();
-    $('mobileWheelModal')?.classList.remove('active');
+    closeMobileModal();
     selectRoom(newWheel);
   });
 

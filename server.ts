@@ -94,6 +94,11 @@ io.on('connection', (socket: Socket) => {
     currentRoom = roomName;
     socket.join(currentRoom);
 
+    // If options were passed on join, remember them
+    if (data && Array.isArray(data.options) && data.options.length > 0) {
+      rooms[currentRoom].options = data.options.slice(0, 100);
+    }
+
     const roomData = rooms[currentRoom];
     const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 1;
 
@@ -102,6 +107,7 @@ io.on('connection', (socket: Socket) => {
     socket.emit('init_state', {
       room: currentRoom,
       options: roomData.options,
+      forcedMainTarget: roomData.forcedMainTarget,
       clientsCount: roomClientsCount,
     });
 
@@ -117,56 +123,64 @@ io.on('connection', (socket: Socket) => {
   // Request sync for current state
   socket.on('request_sync', (data: any = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (targetRoom && rooms[targetRoom]) {
+    if (targetRoom) {
+      const roomName = getOrCreateRoom(targetRoom);
+      const roomData = rooms[roomName];
       socket.emit('init_state', {
-        room: targetRoom,
-        options: rooms[targetRoom].options,
-        clientsCount: io.sockets.adapter.rooms.get(targetRoom)?.size || 1,
+        room: roomName,
+        options: roomData.options,
+        forcedMainTarget: roomData.forcedMainTarget,
+        clientsCount: io.sockets.adapter.rooms.get(roomName)?.size || 1,
       });
     }
   });
 
   // Option-Sync für den aktuellen Raum
   socket.on('sync_options', (data: any = {}) => {
-    if (!currentRoom || !rooms[currentRoom]) return;
+    const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
 
-    if (data && Array.isArray(data.options)) {
-      rooms[currentRoom].options = data.options.slice(0, 100).map((opt: any) => String(opt).trim().substring(0, 50));
-      socket.to(currentRoom).emit('update_options', { options: rooms[currentRoom].options });
+    if (data && Array.isArray(data.options) && data.options.length > 0) {
+      rooms[roomName].options = data.options.slice(0, 100).map((opt: any) => String(opt).trim().substring(0, 50));
+      io.to(roomName).emit('update_options', { options: rooms[roomName].options });
     }
   });
 
   // 🚀 Handy schaltet Falle am PC scharf (Raum-bezogen)
   socket.on('set_forced_main_target', (data: any) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
 
     if (data && typeof data.targetIndex === 'number') {
-      rooms[targetRoom].forcedMainTarget = data.targetIndex;
-      console.log(`[🎯] [${time()}] [Raum: ${targetRoom}] PC-Falle aktiviert! Nächster Klick landet auf Index: ${rooms[targetRoom].forcedMainTarget}`);
-      io.to(targetRoom).emit('arm_pc_trap', { targetIndex: rooms[targetRoom].forcedMainTarget });
+      rooms[roomName].forcedMainTarget = data.targetIndex;
+      console.log(`[🎯] [${time()}] [Raum: ${roomName}] PC-Falle aktiviert! Nächster Klick landet auf Index: ${rooms[roomName].forcedMainTarget}`);
+      io.to(roomName).emit('arm_pc_trap', { targetIndex: rooms[roomName].forcedMainTarget });
     }
   });
 
   // 🚀 Sobald am PC gedreht wird (Falle schnappt zu)
-  socket.on('notify_pc_spun', () => {
-    if (!currentRoom || !rooms[currentRoom]) return;
+  socket.on('notify_pc_spun', (data: any = {}) => {
+    const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
 
-    rooms[currentRoom].forcedMainTarget = -1;
-    console.log(`[🔄] [${time()}] [Raum: ${currentRoom}] Glücksrad wurde am PC gedreht. Falle resettet.`);
-    io.to(currentRoom).emit('wheel_spun_on_pc');
+    rooms[roomName].forcedMainTarget = -1;
+    console.log(`[🔄] [${time()}] [Raum: ${roomName}] Glücksrad wurde am PC gedreht. Falle resettet.`);
+    io.to(roomName).emit('wheel_spun_on_pc');
   });
 
   // 🔥 ULTRA-ROBUSTER & SPAM-SICHERER SPIN-COMMAND (PRO RAUM)
   socket.on('remote_spin', (data: any = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
-
-    const roomData = rooms[targetRoom];
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
+    const roomData = rooms[roomName];
     const now = Date.now();
 
-    if (now - roomData.lastSpinTime < SPIN_COOLDOWN_MS) {
-      socket.emit('error_message', { message: 'Bitte warte einen Moment vor dem nächsten Dreh!' });
+    if (now - roomData.lastSpinTime < 600) {
+      socket.emit('error_message', { message: '⏳ Bitte einen kurzen Moment warten!' });
       return;
     }
 
@@ -176,9 +190,9 @@ io.on('connection', (socket: Socket) => {
     }
 
     roomData.lastSpinTime = now;
-    console.log(`[🚀] [${time()}] [Raum: ${targetRoom}] Dreh-Signal von ${socket.id} | Ziel: ${targetIndex ?? 'Zufall'}`);
+    console.log(`[🚀] [${time()}] [Raum: ${roomName}] Dreh-Signal von ${socket.id} | Ziel: ${targetIndex ?? 'Zufall'}`);
 
-    io.to(targetRoom).emit('trigger_spin', {
+    io.to(roomName).emit('trigger_spin', {
       targetIndex,
       triggeredBy: socket.id,
     });
@@ -187,10 +201,11 @@ io.on('connection', (socket: Socket) => {
   // 🔊 LIVE SFX TRIGGER VOM HANDY (Konfetti, Applaus, Trommelwirbel, Drama)
   socket.on('trigger_sfx', (data: any = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
-    if (!targetRoom || !rooms[targetRoom]) return;
+    if (!targetRoom) return;
+    const roomName = getOrCreateRoom(targetRoom);
 
-    console.log(`[🔊] [${time()}] [Raum: ${targetRoom}] SFX Trigger:`, data?.effect);
-    io.to(targetRoom).emit('trigger_sfx', data);
+    console.log(`[🔊] [${time()}] [Raum: ${roomName}] SFX Trigger:`, data?.effect);
+    io.to(roomName).emit('trigger_sfx', data);
   });
 
   // Trennung verarbeiten
