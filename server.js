@@ -27,9 +27,23 @@ function getOrCreateRoom(roomName) {
   }
   return cleanName;
 }
+function getActiveRoomsMap() {
+  const map = {};
+  for (const roomName of Object.keys(rooms)) {
+    const count = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+    if (count > 0) {
+      map[roomName] = { clientsCount: count, isOnline: true };
+    }
+  }
+  return map;
+}
+function broadcastActiveRooms() {
+  io.emit("active_rooms_status", getActiveRoomsMap());
+}
 io.on("connection", (socket) => {
   const time = () => (/* @__PURE__ */ new Date()).toLocaleTimeString("de-DE");
   console.log(`[+] [${time()}] Ger\xE4t verbunden: ${socket.id}`);
+  socket.emit("active_rooms_status", getActiveRoomsMap());
   let currentRoom = null;
   socket.on("join_room", (data = {}) => {
     const inputStr = typeof data === "string" ? data : data?.roomName || data?.pin || data?.room || "";
@@ -49,13 +63,17 @@ io.on("connection", (socket) => {
     socket.join(currentRoom);
     const roomData = rooms[currentRoom];
     const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 1;
-    console.log(`[\u{1F3EB}] [${time()}] Ger\xE4t ${socket.id} ist Raum '${currentRoom}' beigetreten.`);
+    console.log(`[\u{1F3EB}] [${time()}] Ger\xE4t ${socket.id} ist Raum '${currentRoom}' beigetreten. (${roomClientsCount} Ger\xE4te aktiv)`);
     socket.emit("init_state", {
       room: currentRoom,
       options: roomData.options,
       clientsCount: roomClientsCount
     });
     io.to(currentRoom).emit("client_count_changed", { count: roomClientsCount });
+    broadcastActiveRooms();
+  });
+  socket.on("get_active_rooms", () => {
+    socket.emit("active_rooms_status", getActiveRoomsMap());
   });
   socket.on("request_sync", (data = {}) => {
     const targetRoom = data?.room ? String(data.room).toLowerCase().trim() : currentRoom;
@@ -121,7 +139,13 @@ io.on("connection", (socket) => {
       const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 0;
       io.to(currentRoom).emit("client_count_changed", { count: roomClientsCount });
     }
+    setTimeout(() => {
+      broadcastActiveRooms();
+    }, 50);
   });
+});
+app.get("/api/active-rooms", (_req, res) => {
+  res.json(getActiveRoomsMap());
 });
 const distDir = path.join(__dirname, "dist");
 const distIndex = path.join(distDir, "index.html");

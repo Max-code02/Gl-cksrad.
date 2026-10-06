@@ -124,11 +124,118 @@
             justify-content: space-between;
             align-items: center;
             gap: 0.5rem;
-            transition: border-color 0.2s;
+            transition: all 0.2s ease;
         }
 
         .remote-room-item:hover {
             border-color: #6366f1;
+        }
+
+        .remote-room-item.online-active {
+            border: 1px solid #10b981;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%);
+            box-shadow: 0 4px 20px -2px rgba(16, 185, 129, 0.25);
+        }
+
+        .room-item-title-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .online-live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+        }
+
+        .offline-badge {
+            display: inline-flex;
+            align-items: center;
+            color: var(--text-secondary);
+            font-size: 0.72rem;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background-color: #10b981;
+            box-shadow: 0 0 8px #10b981;
+            display: inline-block;
+            animation: pulse-ring 1.4s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
+
+        @keyframes pulse-ring {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.4);
+                opacity: 0.5;
+            }
+        }
+
+        .btn-select-online {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+            box-shadow: 0 4px 15px -3px rgba(16, 185, 129, 0.5) !important;
+            color: #ffffff !important;
+        }
+
+        .btn-select-online:hover {
+            transform: scale(1.03);
+            box-shadow: 0 6px 20px -3px rgba(16, 185, 129, 0.7) !important;
+        }
+
+        .active-rooms-summary-banner {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+            border-radius: 14px;
+            padding: 0.7rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #34d399;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 0.75rem;
+        }
+
+        .room-live-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .room-live-status-pill.online {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+        }
+
+        .room-live-status-pill.waiting {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.4);
         }
 
         .room-item-info {
@@ -566,7 +673,10 @@
             
             <div class="control-top-bar">
                 <button id="btnBackToRooms" class="btn-back-rooms">← Räder</button>
-                <span id="activeRoomNameBadge" class="active-room-badge">Standard Glücksrad</span>
+                <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                    <span id="activeRoomNameBadge" class="active-room-badge">Standard Glücksrad</span>
+                    <span id="roomLiveStatus" class="room-live-status-pill waiting">⏳ Warte auf PC...</span>
+                </div>
             </div>
 
             <!-- STATUS DER MAIN-WHEEL FALLE -->
@@ -592,6 +702,7 @@
                 </div>
 
                 <div class="preset-bar">
+                    <button class="btn-preset" data-action="shuffle" style="background: rgba(99, 102, 241, 0.25); color: #a5b4fc; border-color: #6366f1; font-weight: 800;">🔀 Alles mischen</button>
                     <button class="btn-preset" data-action="50">Alle 50w</button>
                     <button class="btn-preset" data-action="100">Alle 100w</button>
                     <button class="btn-preset" data-action="lock0">Ziel 1 = 0%</button>

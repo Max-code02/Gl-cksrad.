@@ -297,6 +297,11 @@ function init() {
       }
     });
 
+    if (socket.connected && currentWheel) {
+      socket.emit('join_room', { roomName: currentWheel.id });
+      socket.emit('sync_options', { options: currentWheel.options });
+    }
+
     socket.on('init_state', (data: any) => {
       if (data && Array.isArray(data.options) && data.options.length > 0) {
         currentWheel.options = data.options;
@@ -644,6 +649,49 @@ function resetWheelOptions() {
     saveWheelToFirebase(currentWheel);
     renderOptionsList();
     drawWheel();
+  }
+}
+
+function shuffleWheelOptions() {
+  if (isSpinning || currentWheel.options.length < 2) return;
+
+  // Fisher-Yates Shuffle Algorithmus
+  const arr = [...currentWheel.options];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+
+  currentWheel.options = arr;
+  activeIndex = -1;
+  updateFocusState(-1);
+
+  // Soundeffekt und feine visuelle Rüttel-Animation
+  audio.init();
+  audio.playTick(1.2);
+  shakeWheel();
+
+  // Speichern in Firebase & lokal
+  saveWheelToFirebase(currentWheel);
+
+  // Neu zeichnen
+  renderOptionsList();
+  drawWheel();
+
+  // An verbundene Mobilgeräte syncen
+  if (socket && socket.connected) {
+    socket.emit('sync_options', { options: currentWheel.options });
+  }
+
+  // Erfolgsanzeige im UI
+  const indicator = $('saveStatusIndicator');
+  if (indicator) {
+    indicator.textContent = '🔀 Alles durchgemischt!';
+    indicator.style.color = '#38bdf8';
+    setTimeout(() => {
+      indicator.textContent = '✓ Gespeichert';
+      indicator.style.color = '#10b981';
+    }, 2200);
   }
 }
 
@@ -1149,6 +1197,10 @@ function setupEventListeners() {
     addOption();
   });
   $('resetBtn')?.addEventListener('click', resetWheelOptions);
+
+  // Shuffle Options (Alles mischen)
+  $('btnShuffleTop')?.addEventListener('click', shuffleWheelOptions);
+  $('btnShuffleOptions')?.addEventListener('click', shuffleWheelOptions);
 
   // Spin Button
   $('spinBtn')?.addEventListener('click', () => {

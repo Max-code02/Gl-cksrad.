@@ -11,6 +11,7 @@ let currentWheel: WheelData = { ...DEFAULT_PRESET_WHEEL };
 let optionWeights: number[] = [];
 let forcedMainTarget: number | null = null;
 let currentRoom = 'standard';
+let activeRoomsStatus: Record<string, { clientsCount: number; isOnline: boolean }> = {};
 
 // Socket setup
 let socket: any = null;
@@ -30,6 +31,16 @@ async function init() {
     allWheels = wheels;
     renderRemoteRoomsList();
   });
+
+  // REST Fallback for active rooms status
+  fetch('/api/active-rooms')
+    .then((r) => r.json())
+    .then((data) => {
+      activeRoomsStatus = data || {};
+      renderRemoteRoomsList();
+      updateLiveRoomIndicator();
+    })
+    .catch(() => {});
 
   subscribeToWheels((wheels) => {
     allWheels = wheels;
@@ -67,6 +78,7 @@ async function init() {
         badge.textContent = 'Verbunden 🟢';
         badge.classList.add('online');
       }
+      socket.emit('get_active_rooms');
       if (currentRoom) {
         socket.emit('join_room', currentRoom);
         socket.emit('request_sync', { room: currentRoom });
@@ -79,6 +91,13 @@ async function init() {
         badge.textContent = 'Getrennt 🔴';
         badge.classList.remove('online');
       }
+    });
+
+    // Realtime update of which rooms are online & active!
+    socket.on('active_rooms_status', (data: any) => {
+      activeRoomsStatus = data || {};
+      renderRemoteRoomsList();
+      updateLiveRoomIndicator();
     });
 
     socket.on('init_state', (data: any) => {
@@ -122,24 +141,70 @@ async function init() {
   }
 }
 
+function updateLiveRoomIndicator() {
+  const pill = $('roomLiveStatus');
+  if (!pill) return;
+  const status = activeRoomsStatus[currentRoom.toLowerCase()];
+  const isOnline = Boolean(status && status.isOnline && status.clientsCount > 0);
+  const count = status ? status.clientsCount : 0;
+
+  if (isOnline) {
+    pill.className = 'room-live-status-pill online';
+    pill.innerHTML = `<span class="pulse-dot"></span> 🟢 PC aktiv (${count} im Raum)`;
+  } else {
+    pill.className = 'room-live-status-pill waiting';
+    pill.innerHTML = `⏳ Warte auf PC...`;
+  }
+}
+
 function renderRemoteRoomsList() {
   const wheelsRemoteList = $('wheelsRemoteList');
   if (!wheelsRemoteList) return;
   wheelsRemoteList.innerHTML = '';
 
-  allWheels.forEach((wheel) => {
+  // Sortiere aktive/online Räume ganz nach oben!
+  const sortedWheels = [...allWheels].sort((a, b) => {
+    const aOnline = Boolean(activeRoomsStatus[a.id.toLowerCase()]?.isOnline);
+    const bOnline = Boolean(activeRoomsStatus[b.id.toLowerCase()]?.isOnline);
+    if (aOnline && !bOnline) return -1;
+    if (!aOnline && bOnline) return 1;
+    return a.title.localeCompare(b.title);
+  });
+
+  const onlineCount = sortedWheels.filter((w) => Boolean(activeRoomsStatus[w.id.toLowerCase()]?.isOnline)).length;
+
+  if (onlineCount > 0) {
+    const banner = document.createElement('div');
+    banner.className = 'active-rooms-summary-banner';
+    banner.innerHTML = `<span class="pulse-dot"></span> 🔥 <strong>${onlineCount} ${onlineCount === 1 ? 'Glücksrad ist' : 'Glücksräder sind'} gerade online & steuerbar!</strong>`;
+    wheelsRemoteList.appendChild(banner);
+  }
+
+  sortedWheels.forEach((wheel) => {
+    const status = activeRoomsStatus[wheel.id.toLowerCase()];
+    const isOnline = Boolean(status && status.isOnline && status.clientsCount > 0);
+    const clientsCount = status ? status.clientsCount : 0;
+
     const div = document.createElement('div');
-    div.className = 'remote-room-item';
+    div.className = `remote-room-item ${isOnline ? 'online-active' : ''}`;
     div.innerHTML = `
       <div class="room-item-info">
-        <div class="room-item-title">${escapeHtml(wheel.title)}</div>
+        <div class="room-item-title-row">
+          <span class="room-item-title">${escapeHtml(wheel.title)}</span>
+          ${
+            isOnline
+              ? `<span class="online-live-badge"><span class="pulse-dot"></span> 🟢 ONLINE (${clientsCount} ${clientsCount === 1 ? 'Gerät' : 'Geräte'})</span>`
+              : `<span class="offline-badge">⚪ Bereit</span>`
+          }
+        </div>
         <div class="room-item-meta">
           <span>${wheel.options.length} Optionen</span> • 
           <span style="color:#818cf8;">ID: ${escapeHtml(wheel.id)}</span>
+          ${isOnline ? ' • <span style="color:#34d399; font-weight:700;">🟢 PC verbunden!</span>' : ''}
         </div>
       </div>
-      <button class="btn-select-room" data-action="select-room" data-id="${wheel.id}">
-        Steuern 🕹️
+      <button class="btn-select-room ${isOnline ? 'btn-select-online' : ''}" data-action="select-room" data-id="${wheel.id}">
+        ${isOnline ? 'Verbinden 🕹️' : 'Steuern 🕹️'}
       </button>
     `;
     wheelsRemoteList.appendChild(div);
@@ -158,6 +223,7 @@ function selectRoom(wheel: WheelData) {
   if (controlView) controlView.style.display = 'flex';
 
   syncOptions(wheel.options);
+  updateLiveRoomIndicator();
 
   if (socket) {
     socket.emit('join_room', currentRoom);
@@ -304,6 +370,31 @@ function randomizeWeights() {
   renderOptionsUI();
   vibrate(50);
   showToast(`Gewichte zufällig durchgemischt!`);
+}
+
+function shuffleOptionsFromRemote() {
+  if (currentWheel.options.length < 2) {
+    showToast('Mindestens 2 Optionen nötig!');
+    return;
+  }
+
+  // Fisher-Yates Shuffle
+  const arr = [...currentWheel.options];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+
+  currentWheel.options = arr;
+  syncOptions(arr);
+
+  if (socket && socket.connected) {
+    socket.emit('sync_options', { options: arr });
+  }
+
+  saveWheelToFirebase(currentWheel);
+  vibrate(50);
+  showToast('🔀 Optionen live am PC durchgemischt!');
 }
 
 function triggerEffect(effectName: string) {
@@ -504,7 +595,8 @@ function setupEventListeners() {
   document.querySelectorAll('.btn-preset').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       const action = (e.target as HTMLElement).dataset.action;
-      if (action === '50') setAllWeights(50);
+      if (action === 'shuffle') shuffleOptionsFromRemote();
+      else if (action === '50') setAllWeights(50);
       else if (action === '100') setAllWeights(100);
       else if (action === 'lock0') lockFirstOption();
       else if (action === 'force100') forceFirstOption();

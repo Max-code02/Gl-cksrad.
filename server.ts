@@ -44,10 +44,28 @@ function getOrCreateRoom(roomName: string): string {
   return cleanName;
 }
 
+function getActiveRoomsMap(): Record<string, { clientsCount: number; isOnline: boolean }> {
+  const map: Record<string, { clientsCount: number; isOnline: boolean }> = {};
+  for (const roomName of Object.keys(rooms)) {
+    const count = io.sockets.adapter.rooms.get(roomName)?.size || 0;
+    if (count > 0) {
+      map[roomName] = { clientsCount: count, isOnline: true };
+    }
+  }
+  return map;
+}
+
+function broadcastActiveRooms() {
+  io.emit('active_rooms_status', getActiveRoomsMap());
+}
+
 // 2. SOCKET.IO REAL-TIME LOGIK (MULTI-ROOM SUPPORT)
 io.on('connection', (socket: Socket) => {
   const time = () => new Date().toLocaleTimeString('de-DE');
   console.log(`[+] [${time()}] Gerät verbunden: ${socket.id}`);
+
+  // Send current active rooms status immediately upon connection
+  socket.emit('active_rooms_status', getActiveRoomsMap());
 
   let currentRoom: string | null = null;
 
@@ -79,7 +97,7 @@ io.on('connection', (socket: Socket) => {
     const roomData = rooms[currentRoom];
     const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 1;
 
-    console.log(`[🏫] [${time()}] Gerät ${socket.id} ist Raum '${currentRoom}' beigetreten.`);
+    console.log(`[🏫] [${time()}] Gerät ${socket.id} ist Raum '${currentRoom}' beigetreten. (${roomClientsCount} Geräte aktiv)`);
 
     socket.emit('init_state', {
       room: currentRoom,
@@ -88,6 +106,12 @@ io.on('connection', (socket: Socket) => {
     });
 
     io.to(currentRoom).emit('client_count_changed', { count: roomClientsCount });
+    broadcastActiveRooms();
+  });
+
+  // Explicit poll for active rooms
+  socket.on('get_active_rooms', () => {
+    socket.emit('active_rooms_status', getActiveRoomsMap());
   });
 
   // Request sync for current state
@@ -176,7 +200,15 @@ io.on('connection', (socket: Socket) => {
       const roomClientsCount = io.sockets.adapter.rooms.get(currentRoom)?.size || 0;
       io.to(currentRoom).emit('client_count_changed', { count: roomClientsCount });
     }
+    setTimeout(() => {
+      broadcastActiveRooms();
+    }, 50);
   });
+});
+
+// REST API für aktive Räume (sofortige Abfrage)
+app.get('/api/active-rooms', (_req: Request, res: Response) => {
+  res.json(getActiveRoomsMap());
 });
 
 // 3. STATISCHE DATEIEN & EXPLICITE ROUTEN
